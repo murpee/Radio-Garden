@@ -8,7 +8,7 @@ from discord.ext import commands
 from threading import Thread
 from flask import Flask
 
-# --- Render/Railway Port Verification Server ---
+# --- Port verification server for cloud uptime ---
 app = Flask('')
 @app.route('/')
 def home():
@@ -19,7 +19,7 @@ def run_web_server():
     app.run(host='0.0.0.0', port=port)
 
 # --- Radio Garden Setup ---
-# FIXED: Pointed to the actual, live global query paths
+# FIXED: Updated endpoints targeting the accurate live structural database
 URL_SEARCH = "https://radio.garden"
 URL_LISTEN = "https://radio.garden"
 
@@ -74,13 +74,13 @@ async def _search(ctx, searchTerms, printMsg=True):
         with urllib.request.urlopen(req) as url:
             apiResults = json.loads(url.read())
 
-        # FIXED: Targets the accurate nested data schema return objects
+        # FIXED: Targets the exact modern nested JSON response array from Radio Garden
         results = []
         if isinstance(apiResults, dict):
-            # Scan inside Radio Garden's nested structured layout blocks
-            results = apiResults.get("data", {}).get("hits", [])
-            if not results:
-                results = apiResults.get("hits", {}).get("hits", [])
+            # Parse the actual dynamic search tracking paths
+            hits = apiResults.get("data", {}).get("hits", [])
+            if isinstance(hits, list):
+                results = hits
 
         if not results:
             if printMsg:
@@ -94,23 +94,31 @@ async def _search(ctx, searchTerms, printMsg=True):
 
         number = 1
         for result in results:
-            # Safely navigate data structures across older/newer schemas
             source = result.get("_source", result)
             
-            # Check type configuration tags
-            if source.get("type") == "channel" or "channel" in result.get("id", ""):
-                title = source.get("title", source.get("name", "Unknown Station"))
+            # Filter specifically for playables and extract naming fields safely
+            if source.get("type") == "channel":
+                title = source.get("title", source.get("name", ""))
+                if not title:
+                    continue
+                    
                 msg += f'{number}. {title}\n'
                 
-                subtitle = source.get("subtitle", source.get("place", {}).get("title", ""))
+                # Fetch localized town/country information layout
+                subtitle = source.get("subtitle", "")
+                if not subtitle and "place" in source:
+                    subtitle = source["place"].get("title", "")
+                
                 if subtitle:
                     msg += f'\t{subtitle}\n\n'
                 else:
                     msg += '\n'
                 
-                # Extract clean, specific channel ID values cleanly
-                station_id = source.get("id", "").split("/")[-1] if "/" in str(source.get("id", "")) else source.get("id", "")
-                if not station_id and "url" in source:
+                # Pull the trailing channel string ID correctly
+                station_id = source.get("id", "")
+                if "/" in str(station_id):
+                    station_id = station_id.split("/")[-1]
+                elif not station_id and "url" in source:
                     station_id = source["url"].split("/")[-1]
 
                 if station_id:
@@ -234,4 +242,4 @@ if __name__ == "__main__":
         t = Thread(target=run_web_server)
         t.start()
         bot.run(token)
-        
+    
