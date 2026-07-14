@@ -19,7 +19,6 @@ def run_web_server():
     app.run(host='0.0.0.0', port=port)
 
 # --- Radio Garden Setup ---
-# FIXED: Updated endpoints targeting the accurate live structural database
 URL_SEARCH = "https://radio.garden"
 URL_LISTEN = "https://radio.garden"
 
@@ -74,13 +73,30 @@ async def _search(ctx, searchTerms, printMsg=True):
         with urllib.request.urlopen(req) as url:
             apiResults = json.loads(url.read())
 
-        # FIXED: Targets the exact modern nested JSON response array from Radio Garden
+        # =====================================================================
+        # 🔍 UNIVERSAL DATA SCANNER
+        # This dynamically hunts down the list of stations regardless of format
+        # =====================================================================
         results = []
         if isinstance(apiResults, dict):
-            # Parse the actual dynamic search tracking paths
-            hits = apiResults.get("data", {}).get("hits", [])
-            if isinstance(hits, list):
-                results = hits
+            # Check for standard 'data' nested under 'hits'
+            data_block = apiResults.get("data", {})
+            if isinstance(data_block, dict):
+                results = data_block.get("hits", [])
+            
+            # Fallback 1: Direct 'hits' mapping
+            if not results and "hits" in apiResults:
+                if isinstance(apiResults["hits"], dict):
+                    results = apiResults["hits"].get("hits", [])
+                elif isinstance(apiResults["hits"], list):
+                    results = apiResults["hits"]
+            
+            # Fallback 2: Direct 'results' mapping
+            if not results:
+                results = apiResults.get("results", [])
+        elif isinstance(apiResults, list):
+            results = apiResults
+        # =====================================================================
 
         if not results:
             if printMsg:
@@ -96,34 +112,33 @@ async def _search(ctx, searchTerms, printMsg=True):
         for result in results:
             source = result.get("_source", result)
             
-            # Filter specifically for playables and extract naming fields safely
-            if source.get("type") == "channel":
-                title = source.get("title", source.get("name", ""))
-                if not title:
-                    continue
-                    
-                msg += f'{number}. {title}\n'
+            # Read name fields safely
+            title = source.get("title", source.get("name", ""))
+            if not title:
+                continue
                 
-                # Fetch localized town/country information layout
-                subtitle = source.get("subtitle", "")
-                if not subtitle and "place" in source:
-                    subtitle = source["place"].get("title", "")
-                
-                if subtitle:
-                    msg += f'\t{subtitle}\n\n'
-                else:
-                    msg += '\n'
-                
-                # Pull the trailing channel string ID correctly
-                station_id = source.get("id", "")
-                if "/" in str(station_id):
-                    station_id = station_id.split("/")[-1]
-                elif not station_id and "url" in source:
-                    station_id = source["url"].split("/")[-1]
+            msg += f'{number}. {title}\n'
+            
+            # Grab location data
+            subtitle = source.get("subtitle", "")
+            if not subtitle and "place" in source:
+                subtitle = source["place"].get("title", "")
+            
+            if subtitle:
+                msg += f'\t{subtitle}\n\n'
+            else:
+                msg += '\n'
+            
+            # Clean and save the string ID
+            station_id = source.get("id", "")
+            if "/" in str(station_id):
+                station_id = station_id.split("/")[-1]
+            elif not station_id and "url" in source:
+                station_id = source["url"].split("/")[-1]
 
-                if station_id:
-                    gResults.append(station_id)
-                    number += 1
+            if station_id:
+                gResults.append(station_id)
+                number += 1
 
         print("Search results updated.")
         if number == 1:
@@ -242,4 +257,4 @@ if __name__ == "__main__":
         t = Thread(target=run_web_server)
         t.start()
         bot.run(token)
-    
+        
