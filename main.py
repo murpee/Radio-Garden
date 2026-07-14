@@ -50,46 +50,68 @@ async def on_command_error(ctx, error):
     await ctx.send(f"Something went wrong: {error}")
 
 @bot.command(name="hello")
-async def hello(ctx):
-    await ctx.send("hello", delete_after=20)
-
-@bot.command(name="quit")
-async def quit_(ctx):
-    await ctx.send("Shutting down...")
-    await bot.close()
-
 async def _search(ctx, searchTerms, printMsg=True):
     print("Searching for:", searchTerms)
     try:
         query_url = URL_SEARCH + urllib.parse.quote(searchTerms)
-        with urllib.request.urlopen(query_url) as url:
+        
+        # FIXED: Add browser headers so radio.garden doesn't block the request
+        req = urllib.request.Request(
+            query_url, 
+            headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+        )
+        
+        with urllib.request.urlopen(req) as url:
             apiResults = json.loads(url.read())
 
-        msg = "Showing results for query: " + str(apiResults["query"]) + "\n"
+        if "hits" not in apiResults or "hits" not in apiResults["hits"]:
+            if printMsg:
+                await ctx.send("No stations found for that search.")
+            return False
+
         results = apiResults["hits"]["hits"]
+        msg = f"Showing results for query: {searchTerms}\n"
 
         global gResults
         gResults = [None]
 
         number = 1
         for result in results:
-            if result["_source"]["type"] == "channel":
-                msg += f'{number}. {result["_source"]["title"]}\n'
-                msg += f'\t{result["_source"]["subtitle"]}\n\n'
-                url_ = result["_source"]["url"]
-                gResults.append(url_[-8:])
-                number += 1
+            # Handle variations in API response data structures safely
+            source = result.get("_source", result)
+            if source.get("type") == "channel":
+                msg += f'{number}. {source.get("title")}\n'
+                if source.get("subtitle"):
+                    msg += f'\t{source.get("subtitle")}\n\n'
+                else:
+                    msg += '\n'
+                
+                url_ = source.get("url", "")
+                if url_:
+                    gResults.append(url_[-8:])
+                    number += 1
 
         print("Search results updated.")
+        if number == 1:
+            if printMsg:
+                await ctx.send("No channels found matching that term.")
+            return False
+
         if printMsg:
             await ctx.send(msg[:2000])
+        return True
+    except Exception as e:
+        print("Search error details:", e)
+        if printMsg:
+            await ctx.send("Sorry, I couldn't search radio.garden right now.")
+        return False
+        
         return True
     except Exception as e:
         print("Search error:", e)
         if printMsg:
             await ctx.send("Sorry, I couldn't search radio.garden right now.")
         return False
-
 @bot.command(name="search", aliases=['lookup'])
 async def search(ctx, *args):
     if not args:
