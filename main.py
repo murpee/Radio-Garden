@@ -19,6 +19,7 @@ def run_web_server():
     app.run(host='0.0.0.0', port=port)
 
 # --- Radio Garden Setup ---
+# FIXED: Reconstructed with official endpoints to restore API responses
 URL_SEARCH = "https://radio.garden"
 URL_LISTEN = "https://radio.garden"
 
@@ -66,19 +67,22 @@ async def _search(ctx, searchTerms, printMsg=True):
             query_url, 
             headers={
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Referer': 'https://radio.garden'
+                'Referer': 'https://radio.garden/'
             }
         )
         
         with urllib.request.urlopen(req) as url:
             apiResults = json.loads(url.read())
 
-        if "hits" not in apiResults or "hits" not in apiResults["hits"]:
+        # Safely handle both structural formats of Radio Garden responses
+        hits_container = apiResults.get("hits", {})
+        results = hits_container.get("hits", []) if isinstance(hits_container, dict) else apiResults.get("results", [])
+
+        if not results:
             if printMsg:
                 await ctx.send("No stations found for that search.")
             return False
 
-        results = apiResults["hits"]["hits"]
         msg = f"Showing results for query: {searchTerms}\n"
 
         global gResults
@@ -87,16 +91,22 @@ async def _search(ctx, searchTerms, printMsg=True):
         number = 1
         for result in results:
             source = result.get("_source", result)
-            if source.get("type") == "channel":
-                msg += f'{number}. {source.get("title")}\n'
+            # Match channel identifiers correctly
+            if source.get("type") == "channel" or "channel" in result.get("id", ""):
+                title = source.get("title", source.get("name", "Unknown Station"))
+                msg += f'{number}. {title}\n'
                 if source.get("subtitle"):
                     msg += f'\t{source.get("subtitle")}\n\n'
                 else:
                     msg += '\n'
                 
-                url_ = source.get("url", "")
-                if url_:
-                    gResults.append(url_[-8:])
+                # Extract clean 8-character ID
+                station_id = source.get("id", "").split("/")[-1] if "/" in source.get("id", "") else source.get("id", "")
+                if not station_id and "url" in source:
+                    station_id = source["url"].split("/")[-1].split("?")[0]
+
+                if station_id:
+                    gResults.append(station_id)
                     number += 1
 
         print("Search results updated.")
@@ -146,7 +156,7 @@ async def play(ctx, *, search_query: str = None):
         stream_url_raw = getListenURL(gResults[selected])
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-            'Referer': 'https://radio.garden'
+            'Referer': 'https://radio.garden/'
         }
         x = requests.head(stream_url_raw, headers=headers, allow_redirects=True, timeout=10)
         stream_url = removeRGQueryString(x.url)
@@ -216,4 +226,4 @@ if __name__ == "__main__":
         t = Thread(target=run_web_server)
         t.start()
         bot.run(token)
-        
+    
