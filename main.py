@@ -62,13 +62,10 @@ async def _search(ctx, searchTerms, printMsg=True):
     try:
         query_url = URL_SEARCH + urllib.parse.quote(searchTerms)
         
-        # FIXED: Mandated Referer and User-Agent headers to bypass Radio Garden's Cloudflare rules
+        # PATCHED: Added browser header so Radio Garden doesn't block the connection
         req = urllib.request.Request(
             query_url, 
-            headers={
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Referer': 'https://radio.garden/'
-            }
+            headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
         )
         
         with urllib.request.urlopen(req) as url:
@@ -129,114 +126,6 @@ async def play(ctx, *args):
         await ctx.send("Please provide a search term or station number.")
         return
 
-    # FIXED: Extract tuple correctly via indexing to completely fix the IndexError bug
-    firstTerm = args[0]
-    try:
-        selected = int(firstTerm)
-        if not gResults or selected >= len(gResults) or selected < 1:
-            await ctx.send("That's not a valid result number. Try searching first.")
-            return
-    except ValueError:
-        ok = await _search(ctx, " ".join(args), printMsg=False)
-        if not ok or len(gResults) < 2:
-            await ctx.send("No stations found for that search.")
-            return
-        selected = 1
-
-    try:
-        # FIXED: Pass headers to stream verification to safely fetch content layout
-        stream_url_raw = getListenURL(gResults[selected])
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-            'Referer': 'https://radio.garden/'
-        }
-        x = requests.head(stream_url_raw, headers=headers, allow_redirects=True, timeout=10)
-        stream_url = removeRGQueryString(x.url)
-        await restartStream(ctx, stream_url)
-    except Exception as e:
-        print("Stream connection failed:", e)
-        await ctx.send("Could not stream this station.")
-
-async def restartStream(ctx, url):
-    vc = ctx.voice_client
-    if vc is None:
-        try:
-            channel = ctx.author.voice.channel
-        except AttributeError:
-            await ctx.send("Join a voice channel first, or use `connect`.")
-            return
-        vc = await channel.connect()
-    if vc.is_playing() or vc.is_paused():
-        vc.stop()
-    source = discord.FFmpegPCMAudio(url)
-    vc.play(source, after=lambda e: print(f"Player error: {e}") if e else None)
-    await ctx.send(f"Now streaming: {url}")
-
-@bot.command(name="connect", aliases=['join'])
-async def connect_(ctx, *, channel: discord.VoiceChannel = None):
-    if not channel:
-        try:
-            channel = ctx.author.voice.channel
-        except AttributeError:
-            await ctx.send("Hey buddy, you need to join a voice channel first.")
-            return
-
-    vc = ctx.voice_client
-    if vc:
-        if vc.channel.id == channel.id:
-            await ctx.send("I'm already in that voice channel.")
-        else:
-            await vc.move_to(channel)
-            await ctx.send(f"Moved to {channel.name}.")
-    else:
-        await channel.connect()
-        await ctx.send(f"Connected to {channel.name}.")
-
-@bot.command(name="disconnect", aliases=['leave'])
-async def disconnect_(ctx):
-    vc = ctx.voice_client
-    if vc:
-        await vc.disconnect()
-        await ctx.send("Disconnected.")
-    else:
-        await ctx.send("I'm not connected to a voice channel.")
-
-@bot.command(name="stop")
-async def stop_(ctx):
-    vc = ctx.voice_client
-    if vc and (vc.is_playing() or vc.is_paused()):
-        vc.stop()
-        await ctx.send("Stopped.")
-    else:
-        await ctx.send("Nothing is playing.")
-
-if __name__ == "__main__":
-    token = os.environ.get("DISCORD_BOT_TOKEN")
-    if not token:
-        print("Error: set the DISCORD_BOT_TOKEN environment variable.")
-    else:
-        t = Thread(target=run_web_server)
-        t.start()
-        bot.run(token)
-        if printMsg:
-            await ctx.send("Sorry, I couldn't search radio.garden right now.")
-        return False
-
-@bot.command(name="search", aliases=['lookup'])
-async def search(ctx, *args):
-    if not args:
-        await ctx.send("Please provide a search term, e.g. `search jazz`.")
-        return
-    await _search(ctx, " ".join(args), printMsg=True)
-
-@bot.command(name="play")
-async def play(ctx, *args):
-    global gResults
-    if not args:
-        await ctx.send("Please provide a search term or station number.")
-        return
-
-    # FIXED: Extract index 0 safely from arguments tuple to avoid IndexError layout bugs
     firstTerm = args[0]
     try:
         selected = int(firstTerm)
