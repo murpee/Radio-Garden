@@ -19,7 +19,7 @@ def run_web_server():
     app.run(host='0.0.0.0', port=port)
 
 # --- Radio Garden Setup ---
-URL_SEARCH = "http://radio.garden"
+URL_SEARCH = "https://radio.garden"
 URL_LISTEN = "https://radio.garden"
 
 intents = discord.Intents.default()
