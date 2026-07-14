@@ -19,7 +19,6 @@ def run_web_server():
     app.run(host='0.0.0.0', port=port)
 
 # --- Radio Garden Setup ---
-# FIXED: Reconstructed with official endpoints to restore API responses
 URL_SEARCH = "https://radio.garden"
 URL_LISTEN = "https://radio.garden"
 
@@ -74,13 +73,21 @@ async def _search(ctx, searchTerms, printMsg=True):
         with urllib.request.urlopen(req) as url:
             apiResults = json.loads(url.read())
 
-        # Safely handle both structural formats of Radio Garden responses
-        hits_container = apiResults.get("hits", {})
-        results = hits_container.get("hits", []) if isinstance(hits_container, dict) else apiResults.get("results", [])
+        # FIX: Dynamically scan for any potential container layout Radio Garden sends back
+        results = []
+        if isinstance(apiResults, dict):
+            if "hits" in apiResults and isinstance(apiResults["hits"], dict):
+                results = apiResults["hits"].get("hits", [])
+            elif "hits" in apiResults and isinstance(apiResults["hits"], list):
+                results = apiResults["hits"]
+            else:
+                results = apiResults.get("results", [])
+        elif isinstance(apiResults, list):
+            results = apiResults
 
         if not results:
             if printMsg:
-                await ctx.send("No stations found for that search.")
+                await ctx.send("No stations found for that search. Try another station name!")
             return False
 
         msg = f"Showing results for query: {searchTerms}\n"
@@ -91,23 +98,29 @@ async def _search(ctx, searchTerms, printMsg=True):
         number = 1
         for result in results:
             source = result.get("_source", result)
-            # Match channel identifiers correctly
-            if source.get("type") == "channel" or "channel" in result.get("id", ""):
-                title = source.get("title", source.get("name", "Unknown Station"))
-                msg += f'{number}. {title}\n'
-                if source.get("subtitle"):
-                    msg += f'\t{source.get("subtitle")}\n\n'
-                else:
-                    msg += '\n'
+            
+            # Extract names and subtitle fields
+            title = source.get("title", source.get("name", ""))
+            if not title:
+                continue
                 
-                # Extract clean 8-character ID
-                station_id = source.get("id", "").split("/")[-1] if "/" in source.get("id", "") else source.get("id", "")
-                if not station_id and "url" in source:
-                    station_id = source["url"].split("/")[-1].split("?")[0]
+            msg += f'{number}. {title}\n'
+            subtitle = source.get("subtitle", source.get("place", {}).get("title", ""))
+            if subtitle:
+                msg += f'\t{subtitle}\n\n'
+            else:
+                msg += '\n'
+            
+            # Extract clean 8-character channel ID safely
+            station_id = ""
+            if "id" in source:
+                station_id = source["id"].split("/")[-1] if "/" in str(source["id"]) else source["id"]
+            elif "url" in source:
+                station_id = source["url"].split("/")[-1].split("?")[0]
 
-                if station_id:
-                    gResults.append(station_id)
-                    number += 1
+            if station_id:
+                gResults.append(station_id)
+                number += 1
 
         print("Search results updated.")
         if number == 1:
@@ -226,4 +239,4 @@ if __name__ == "__main__":
         t = Thread(target=run_web_server)
         t.start()
         bot.run(token)
-    
+        
