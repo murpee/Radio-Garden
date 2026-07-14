@@ -5,22 +5,22 @@ import urllib.request
 import urllib.parse
 import requests
 from discord.ext import commands
+from threading import Thread
+from flask import Flask
 
-# =====================================================================
-# 🛠️ TERMUX FALLBACK PATCH FOR DISCORD'S MANDATORY VOICE PROTOCOL
-# This forces the voice client to skip modern DAVE upgrades and connect
-# directly via classic standard encryption channels.
-# =====================================================================
-import discord.voice_client
-discord.voice_client.VoiceClient.supported_modes = [
-    'xsalsa20_poly1305_lite', 
-    'xsalsa20_poly1305_suffix', 
-    'xsalsa20_poly1305'
-]
-# =====================================================================
+# --- Render/Railway Port Verification Server ---
+app = Flask('')
+@app.route('/')
+def home():
+    return "Bot is alive!"
 
-URL_SEARCH = "http://radio.garden/api/search?q="
-URL_LISTEN = "https://radio.garden/api/ara/content/listen/"
+def run_web_server():
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host='0.0.0.0', port=port)
+
+# --- Radio Garden Setup ---
+URL_SEARCH = "http://radio.garden"
+URL_LISTEN = "https://radio.garden"
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -42,7 +42,6 @@ def removeRGQueryString(url):
 @bot.event
 async def on_ready():
     print('We have logged in as {0.user}'.format(bot))
-    print('Message Content Intent status:', bot.intents.message_content)
 
 @bot.event
 async def on_command_error(ctx, error):
@@ -50,12 +49,19 @@ async def on_command_error(ctx, error):
     await ctx.send(f"Something went wrong: {error}")
 
 @bot.command(name="hello")
+async def hello(ctx):
+    await ctx.send("hello", delete_after=20)
+
+@bot.command(name="quit")
+async def quit_(ctx):
+    await ctx.send("Shutting down...")
+    await bot.close()
+
 async def _search(ctx, searchTerms, printMsg=True):
     print("Searching for:", searchTerms)
     try:
         query_url = URL_SEARCH + urllib.parse.quote(searchTerms)
         
-        # FIXED: Add browser headers so radio.garden doesn't block the request
         req = urllib.request.Request(
             query_url, 
             headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
@@ -77,7 +83,6 @@ async def _search(ctx, searchTerms, printMsg=True):
 
         number = 1
         for result in results:
-            # Handle variations in API response data structures safely
             source = result.get("_source", result)
             if source.get("type") == "channel":
                 msg += f'{number}. {source.get("title")}\n'
@@ -105,13 +110,7 @@ async def _search(ctx, searchTerms, printMsg=True):
         if printMsg:
             await ctx.send("Sorry, I couldn't search radio.garden right now.")
         return False
-        
-        return True
-    except Exception as e:
-        print("Search error:", e)
-        if printMsg:
-            await ctx.send("Sorry, I couldn't search radio.garden right now.")
-        return False
+
 @bot.command(name="search", aliases=['lookup'])
 async def search(ctx, *args):
     if not args:
@@ -126,6 +125,7 @@ async def play(ctx, *args):
         await ctx.send("Please provide a search term or station number.")
         return
 
+    # FIXED: Extract index 0 safely from arguments tuple to avoid IndexError layout bugs
     firstTerm = args[0]
     try:
         selected = int(firstTerm)
@@ -133,25 +133,21 @@ async def play(ctx, *args):
             await ctx.send("That's not a valid result number. Try searching first.")
             return
     except ValueError:
-        print("Searching and playing first result...")
         ok = await _search(ctx, " ".join(args), printMsg=False)
         if not ok or len(gResults) < 2:
             await ctx.send("No stations found for that search.")
             return
         selected = 1
 
-    print("Playing index:", selected)
     try:
         x = requests.head(getListenURL(gResults[selected]), allow_redirects=True, timeout=10)
         stream_url = removeRGQueryString(x.url)
         await restartStream(ctx, stream_url)
     except Exception as e:
-        print("Playback error:", e)
         await ctx.send("Could not stream this station.")
 
 async def restartStream(ctx, url):
     vc = ctx.voice_client
-
     if vc is None:
         try:
             channel = ctx.author.voice.channel
@@ -159,10 +155,8 @@ async def restartStream(ctx, url):
             await ctx.send("Join a voice channel first, or use `connect`.")
             return
         vc = await channel.connect()
-
     if vc.is_playing() or vc.is_paused():
         vc.stop()
-
     source = discord.FFmpegPCMAudio(url)
     vc.play(source, after=lambda e: print(f"Player error: {e}") if e else None)
     await ctx.send(f"Now streaming: {url}")
@@ -173,7 +167,7 @@ async def connect_(ctx, *, channel: discord.VoiceChannel = None):
         try:
             channel = ctx.author.voice.channel
         except AttributeError:
-            await ctx.send("Hey buddy, you need to join a voice channel")
+            await ctx.send("Hey buddy, you need to join a voice channel first.")
             return
 
     vc = ctx.voice_client
@@ -208,6 +202,9 @@ async def stop_(ctx):
 if __name__ == "__main__":
     token = os.environ.get("DISCORD_BOT_TOKEN")
     if not token:
-        print("Error: set the DISCORD_BOT_TOKEN environment variable before running this bot.")
+        print("Error: set the DISCORD_BOT_TOKEN environment variable.")
     else:
+        t = Thread(target=run_web_server)
+        t.start()
         bot.run(token)
+        
