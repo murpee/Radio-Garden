@@ -62,10 +62,12 @@ async def _search(ctx, searchTerms, printMsg=True):
     try:
         query_url = URL_SEARCH + urllib.parse.quote(searchTerms)
         
-        # PATCHED: Added browser header so Radio Garden doesn't block the connection
         req = urllib.request.Request(
             query_url, 
-            headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+            headers={
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Referer': 'https://radio.garden'
+            }
         )
         
         with urllib.request.urlopen(req) as url:
@@ -120,30 +122,37 @@ async def search(ctx, *args):
     await _search(ctx, " ".join(args), printMsg=True)
 
 @bot.command(name="play")
-async def play(ctx, *args):
+async def play(ctx, *, search_query: str = None):
     global gResults
-    if not args:
-        await ctx.send("Please provide a search term or station number.")
+    if not search_query:
+        await ctx.send("Please provide a search term or station number, e.g. `play jazz`.")
         return
 
-    firstTerm = args[0]
     try:
-        selected = int(firstTerm)
+        selected = int(search_query.strip())
         if not gResults or selected >= len(gResults) or selected < 1:
-            await ctx.send("That's not a valid result number. Try searching first.")
+            await ctx.send("That's not a valid result number. Try running `search` first.")
             return
     except ValueError:
-        ok = await _search(ctx, " ".join(args), printMsg=False)
+        print(f"Searching and playing top result for: {search_query}")
+        ok = await _search(ctx, search_query, printMsg=False)
         if not ok or len(gResults) < 2:
-            await ctx.send("No stations found for that search.")
+            await ctx.send("No stations found for that search. Try another station name!")
             return
         selected = 1
 
+    print("Playing index selection:", selected)
     try:
-        x = requests.head(getListenURL(gResults[selected]), allow_redirects=True, timeout=10)
+        stream_url_raw = getListenURL(gResults[selected])
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+            'Referer': 'https://radio.garden'
+        }
+        x = requests.head(stream_url_raw, headers=headers, allow_redirects=True, timeout=10)
         stream_url = removeRGQueryString(x.url)
         await restartStream(ctx, stream_url)
     except Exception as e:
+        print("Stream connection failed:", e)
         await ctx.send("Could not stream this station.")
 
 async def restartStream(ctx, url):
