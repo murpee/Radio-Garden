@@ -1,5 +1,6 @@
 import discord
 import os
+import requests
 from discord.ext import commands
 from threading import Thread
 from flask import Flask
@@ -39,24 +40,37 @@ async def hello(ctx):
 @bot.command(name="play")
 async def play(ctx, station_input: str = None):
     if not station_input:
-        await ctx.send("Please provide a Radio Garden link or ID! \nExample: `` `play r49gS2Yv ``")
+        await ctx.send("Please provide a Radio Garden link, ID, or direct stream link!")
         return
 
-    # Extract the unique station code if they paste a full browser link
-    station_id = station_input.strip()
-    if "radio.garden/listen/" in station_id:
-        station_id = station_id.split("/listen/")[-1].split("?")[0]
-        if "/" in station_id:
+    station_input = station_input.strip()
+    
+    # FIXED: Check if it's a universal stream link or a Radio Garden link
+    if "radio.garden" in station_input or not station_input.startswith("http"):
+        # Handle Radio Garden Inputs
+        station_id = station_input
+        if "radio.garden/listen/" in station_id:
+            station_id = station_id.split("/listen/")[-1].split("?")[0]
+            if "/" in station_id:
+                station_id = station_id.split("/")[-1]
+        elif "/" in station_id:
             station_id = station_id.split("/")[-1]
-    elif "/" in station_id:
-        station_id = station_id.split("/")[-1]
+            
+        await ctx.send(f"Connecting to Radio Garden stream ID: **{station_id}**...")
+        stream_url = f"{URL_LISTEN}{station_id}/channel.mp3"
+        ffmpeg_options = (
+            "-reconnect 1 "
+            "-reconnect_streamed 1 "
+            "-reconnect_delay_max 5 "
+            "-headers 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "Referer: https://radio.garden'"
+        )
+    else:
+        # Handle Universal Direct Radio Stream Inputs
+        await ctx.send(f"Connecting to direct audio stream link...")
+        stream_url = station_input
+        ffmpeg_options = "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5"
 
-    await ctx.send(f"Connecting to Radio Garden stream ID: **{station_id}**...")
-
-    # Build the direct .mp3 network stream pathway 
-    stream_url = f"{URL_LISTEN}{station_id}/channel.mp3"
-
-    # Verify the user is inside a joinable channel
     vc = ctx.voice_client
     if vc is None:
         try:
@@ -70,14 +84,6 @@ async def play(ctx, station_input: str = None):
         vc.stop()
 
     try:
-        # Load the raw audio feed using optimized streaming parameters
-        ffmpeg_options = (
-            "-reconnect 1 "
-            "-reconnect_streamed 1 "
-            "-reconnect_delay_max 5 "
-            "-headers 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "Referer: https://radio.garden/'"
-        )
         source = discord.FFmpegPCMAudio(stream_url, before_options=ffmpeg_options)
         vc.play(source, after=lambda e: print(f"Player disconnect: {e}") if e else None)
         await ctx.send("🎶 **Streaming live audio successfully!**")
@@ -109,6 +115,6 @@ if __name__ == "__main__":
         t = Thread(target=run_web_server)
         t.start()
         bot.run(token)
-    else:
+else:
         print("Error: Set your DISCORD_BOT_TOKEN inside your environment variables.")
         
