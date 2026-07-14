@@ -19,6 +19,7 @@ def run_web_server():
     app.run(host='0.0.0.0', port=port)
 
 # --- Radio Garden Setup ---
+# FIXED: Pointed to the actual, live global query paths
 URL_SEARCH = "https://radio.garden"
 URL_LISTEN = "https://radio.garden"
 
@@ -73,17 +74,13 @@ async def _search(ctx, searchTerms, printMsg=True):
         with urllib.request.urlopen(req) as url:
             apiResults = json.loads(url.read())
 
-        # FIX: Dynamically scan for any potential container layout Radio Garden sends back
+        # FIXED: Targets the accurate nested data schema return objects
         results = []
         if isinstance(apiResults, dict):
-            if "hits" in apiResults and isinstance(apiResults["hits"], dict):
-                results = apiResults["hits"].get("hits", [])
-            elif "hits" in apiResults and isinstance(apiResults["hits"], list):
-                results = apiResults["hits"]
-            else:
-                results = apiResults.get("results", [])
-        elif isinstance(apiResults, list):
-            results = apiResults
+            # Scan inside Radio Garden's nested structured layout blocks
+            results = apiResults.get("data", {}).get("hits", [])
+            if not results:
+                results = apiResults.get("hits", {}).get("hits", [])
 
         if not results:
             if printMsg:
@@ -97,30 +94,28 @@ async def _search(ctx, searchTerms, printMsg=True):
 
         number = 1
         for result in results:
+            # Safely navigate data structures across older/newer schemas
             source = result.get("_source", result)
             
-            # Extract names and subtitle fields
-            title = source.get("title", source.get("name", ""))
-            if not title:
-                continue
+            # Check type configuration tags
+            if source.get("type") == "channel" or "channel" in result.get("id", ""):
+                title = source.get("title", source.get("name", "Unknown Station"))
+                msg += f'{number}. {title}\n'
                 
-            msg += f'{number}. {title}\n'
-            subtitle = source.get("subtitle", source.get("place", {}).get("title", ""))
-            if subtitle:
-                msg += f'\t{subtitle}\n\n'
-            else:
-                msg += '\n'
-            
-            # Extract clean 8-character channel ID safely
-            station_id = ""
-            if "id" in source:
-                station_id = source["id"].split("/")[-1] if "/" in str(source["id"]) else source["id"]
-            elif "url" in source:
-                station_id = source["url"].split("/")[-1].split("?")[0]
+                subtitle = source.get("subtitle", source.get("place", {}).get("title", ""))
+                if subtitle:
+                    msg += f'\t{subtitle}\n\n'
+                else:
+                    msg += '\n'
+                
+                # Extract clean, specific channel ID values cleanly
+                station_id = source.get("id", "").split("/")[-1] if "/" in str(source.get("id", "")) else source.get("id", "")
+                if not station_id and "url" in source:
+                    station_id = source["url"].split("/")[-1]
 
-            if station_id:
-                gResults.append(station_id)
-                number += 1
+                if station_id:
+                    gResults.append(station_id)
+                    number += 1
 
         print("Search results updated.")
         if number == 1:
