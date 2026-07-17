@@ -2,9 +2,8 @@ import os
 import asyncio
 import discord
 
-# Hardcode your voice channel ID here so it automatically joins on startup
-# Replace 123456789012345678 with your actual Voice Channel ID string
-TARGET_VC_ID = 122958136242081884  
+# Automatically targets your specific channel environment layout
+TARGET_VC_ID = 1522975909504749749  
 
 intents = discord.Intents.default()
 intents.voice_states = True
