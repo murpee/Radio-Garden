@@ -3,6 +3,8 @@ import discord
 from discord.ext import commands, tasks
 
 intents = discord.Intents.default()
+intents.voice_states = True
+
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 TOKEN = os.getenv("DISCORD_TOKEN")
