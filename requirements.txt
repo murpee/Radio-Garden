@@ -1,4 +1,1 @@
-discord.py[voice]
-PyNaCl
-requests
-Flask
+discord.py[voice]==2.4.0
