@@ -1,92 +1,61 @@
 import os
 import asyncio
 import discord
-from discord.ext import commands
+
+# Hardcode your voice channel ID here so it automatically joins on startup
+# Replace 123456789012345678 with your actual Voice Channel ID string
+TARGET_VC_ID = 122958136242081884  
 
 intents = discord.Intents.default()
-intents.message_content = True
 intents.voice_states = True
 
-bot = commands.Bot(command_prefix="!", intents=intents)
-
-is_247_enabled = False
-target_voice_channel_id = None
-
-class SilenceAudio(discord.AudioSource):
-    """Generates continuous raw silence packets to bypass Discord's idle kick."""
+class SilenceSource(discord.AudioSource):
     def read(self):
         return b'\x00' * 384
 
-async def keep_vc_alive(vc_client):
-    """Feeds silence to the voice gateway to make the bot look active."""
-    while is_247_enabled and vc_client.is_connected():
-        if not vc_client.is_playing():
-            try:
-                vc_client.play(SilenceAudio())
-            except Exception:
-                pass
-        await asyncio.sleep(1)
+class Auto247Bot(discord.Client):
+    def __init__(self):
+        super().__init__(intents=intents)
+        self.vc_client = None
 
-@bot.event
-async def on_ready():
-    print(f"Logged in as {bot.user.name} - 24/7 Voice Core Active.")
+    async def on_ready(self):
+        print(f"Logged in as {self.user.name} - Initializing Auto-Join Routine.")
+        await self.connect_to_target()
 
-@bot.event
-async def on_voice_state_update(member, before, after):
-    """Listens for random server drops or kicks and forces a clean rejoin."""
-    global is_247_enabled, target_voice_channel_id
-    
-    if member.id == bot.user.id and is_247_enabled:
-        # If the bot was disconnected from its target channel
-        if after.channel is None:
-            print("Detected disconnect. Cleaning up session...")
-            
-            # Force clean the old broken session state on our side
-            if member.guild.voice_client:
+    async def connect_to_target(self):
+        channel = self.get_channel(TARGET_VC_ID)
+        if not channel:
+            print(f"CRITICAL: Could not find Voice Channel with ID {TARGET_VC_ID}")
+            return
+
+        try:
+            print(f"Connecting directly to voice channel: {channel.name}")
+            self.vc_client = await channel.connect(self_deaf=True)
+            self.loop.create_task(self.keep_alive_loop())
+        except Exception as e:
+            print(f"Connection failed: {e}")
+
+    async def keep_alive_loop(self):
+        while self.vc_client and self.vc_client.is_connected():
+            if not self.vc_client.is_playing():
                 try:
-                    await member.guild.voice_client.disconnect(force=True)
+                    self.vc_client.play(SilenceSource())
                 except Exception:
                     pass
-            
-            await asyncio.sleep(3)  # Give Discord gateway time to reset
-            
-            print("Reconnecting to target VC cleanly...")
-            channel = bot.get_channel(target_voice_channel_id)
-            if channel:
-                try:
-                    vc = await channel.connect(self_deaf=True)
-                    bot.loop.create_task(keep_vc_alive(vc))
-                except Exception as e:
-                    print(f"Clean reconnection error: {e}")
-
-@bot.command()
-async def join247(ctx):
-    """Locks the bot into your current voice channel indefinitely."""
-    global is_247_enabled, target_voice_channel_id
-    
-    if not ctx.author.voice:
-        return await ctx.send("❌ You must join a voice channel first!")
-    
-    channel = ctx.author.voice.channel
-    target_voice_channel_id = channel.id
-    
-    if not is_247_enabled:
-        is_247_enabled = True
-        
-        # Clear any ghost connections before joining
-        if ctx.voice_client:
-            await ctx.voice_client.disconnect(force=True)
             await asyncio.sleep(1)
-            
-        vc = await channel.connect(self_deaf=True)
-        bot.loop.create_task(keep_vc_alive(vc))
-        await ctx.send(f"✅ **24/7 Mode Activated.** Locked into `{channel.name}`.")
-    else:
-        is_247_enabled = False
-        if ctx.voice_client:
-            await ctx.voice_client.disconnect()
-        await ctx.send("🛑 **24/7 Mode Deactivated.** Leaving channel.")
 
+    async def on_voice_state_update(self, member, before, after):
+        if member.id == self.user.id and after.channel is None:
+            print("Server disconnected the bot. Triggering auto-reconnect...")
+            if self.vc_client:
+                try:
+                    await self.vc_client.disconnect(force=True)
+                except Exception:
+                    pass
+            await asyncio.sleep(3)
+            await self.connect_to_target()
+
+bot = Auto247Bot()
 TOKEN = os.getenv("DISCORD_TOKEN")
 if TOKEN:
     bot.run(TOKEN)
