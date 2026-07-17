@@ -1,4 +1,5 @@
 import os
+import asyncio
 import discord
 from discord.ext import commands, tasks
 
@@ -27,13 +28,14 @@ async def keep_vc_alive():
     
     if not vc:
         try:
-            vc = await channel.connect()
+            vc = await channel.connect(timeout=20.0, reconnect=True)
             print(f"Connected to {channel.name}")
+            await asyncio.sleep(2)  # Critical 2-second stabilization delay
         except Exception as e:
             print(f"Failed to connect: {e}")
             return
 
-    if vc and not vc.is_playing():
+    if vc and vc.is_connected() and not vc.is_playing():
         try:
             source = discord.FFmpegPCMAudio("https://github.com")
             vc.play(source)
